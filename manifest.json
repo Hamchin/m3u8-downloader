@@ -1,1 +1,24 @@
-{"action":{"default_popup":"src/popup.html","default_title":"m3u8 Downloader"},"background":{"service_worker":"src/background.js"},"description":"ページで再生された m3u8 (HLS) を検出して mp4 でダウンロードする拡張機能","host_permissions":["<all_urls>"],"manifest_version":3,"name":"m3u8 Downloader","permissions":["webRequest","storage","offscreen","downloads","declarativeNetRequest","tabs"],"version":"0.1.0"}
+{
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_title": "m3u8 Downloader"
+  },
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "description": "ページで再生された m3u8 (HLS) を検出して mp4 でダウンロードする拡張機能",
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "manifest_version": 3,
+  "name": "m3u8 Downloader",
+  "permissions": [
+    "webRequest",
+    "storage",
+    "offscreen",
+    "downloads",
+    "declarativeNetRequest",
+    "tabs"
+  ],
+  "version": "0.1.0"
+}
