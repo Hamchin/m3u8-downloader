@@ -69,7 +69,10 @@ function report(job) {
     filename: job.filename,
     error: job.error || null
   };
-  chrome.storage.session.set({ ['job_' + job.id]: snapshot });
+  var data = { ['job_' + job.id]: snapshot };
+  // ポップアップを開き直したときに進行中ジョブを復元できるよう、最新ジョブも記録する
+  data.latest_job = snapshot;
+  chrome.storage.session.set(data);
   chrome.runtime.sendMessage({ type: 'jobProgress', job: snapshot }).catch(function () {});
 }
 

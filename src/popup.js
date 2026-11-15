@@ -220,4 +220,21 @@ $('btn-cancel').addEventListener('click', async function () {
 });
 $('btn-close').addEventListener('click', function () { window.close(); });
 
-document.addEventListener('DOMContentLoaded', loadList);
+// 開き直したとき、進行中のジョブがあれば進捗画面を復元する
+async function init() {
+  var obj = await chrome.storage.session.get('latest_job');
+  var job = obj.latest_job;
+  if (job && job.state === 'running') {
+    state.currentJobId = job.jobId;
+    $('progress-file').textContent = job.filename || '';
+    $('btn-cancel').hidden = false;
+    $('btn-close').hidden = true;
+    renderJob(job);
+    show('view-progress');
+    pollJob();
+    return;
+  }
+  loadList();
+}
+
+document.addEventListener('DOMContentLoaded', init);
