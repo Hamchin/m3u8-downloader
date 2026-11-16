@@ -7,40 +7,49 @@
 </head>
 <body>
   <header>
-    <h1>m3u8 Downloader</h1>
+    <img src="../icons/icon48.png" alt="" class="logo">
+    <div class="header-text">
+      <h1>m3u8 Downloader</h1>
+      <p class="tagline">HLS 動画を mp4 で保存</p>
+    </div>
   </header>
 
-  <!-- 一覧 -->
-  <section id="view-list">
-    <p id="list-empty" class="muted" hidden>このページではまだ m3u8 が検出されていません。動画を再生すると検出されます。</p>
-    <ul id="list"></ul>
-  </section>
+  <main>
+    <!-- 一覧 -->
+    <section id="view-list">
+      <p id="list-empty" class="empty" hidden>このページではまだ m3u8 が検出されていません。動画を再生すると検出されます。</p>
+      <ul id="list"></ul>
+    </section>
 
-  <!-- 詳細（画質選択・ファイル名） -->
-  <section id="view-detail" hidden>
-    <button id="btn-back" class="link">← 一覧に戻る</button>
-    <p id="detail-url" class="url"></p>
-    <p id="detail-info" class="muted"></p>
-    <div id="variant-box" hidden>
-      <label>画質</label>
-      <div id="variants"></div>
-    </div>
-    <div>
-      <label for="filename">ファイル名</label>
-      <input id="filename" type="text" spellcheck="false">
-    </div>
-    <p id="detail-error" class="error" hidden></p>
-    <button id="btn-start" class="primary">ダウンロード開始</button>
-  </section>
+    <!-- 詳細（画質選択・ファイル名） -->
+    <section id="view-detail" hidden>
+      <button id="btn-back" class="link">← 戻る</button>
+      <p id="detail-url" class="url"></p>
+      <p id="detail-info" class="muted"></p>
+      <div id="variant-box" hidden>
+        <label class="field-label">画質</label>
+        <div id="variants"></div>
+      </div>
+      <div>
+        <label class="field-label" for="filename">ファイル名</label>
+        <input id="filename" type="text" spellcheck="false">
+      </div>
+      <p id="detail-error" class="error" hidden></p>
+      <button id="btn-start" class="primary">ダウンロード開始</button>
+    </section>
 
-  <!-- 進捗 -->
-  <section id="view-progress" hidden>
-    <p id="progress-file" class="url"></p>
-    <progress id="progress-bar" max="100" value="0"></progress>
-    <p id="progress-text" class="muted"></p>
-    <button id="btn-cancel">キャンセル</button>
-    <button id="btn-close" class="link" hidden>閉じる</button>
-  </section>
+    <!-- 進捗 -->
+    <section id="view-progress" hidden>
+      <p id="progress-file" class="url"></p>
+      <div class="progress-head"><span id="progress-pct">0%</span></div>
+      <div class="progress-track"><div id="progress-bar"></div></div>
+      <p id="progress-text" class="muted"></p>
+      <div class="actions">
+        <button id="btn-cancel" class="ghost">キャンセル</button>
+        <button id="btn-close" class="primary" hidden>閉じる</button>
+      </div>
+    </section>
+  </main>
 
   <script src="popup.js"></script>
 </body>

@@ -160,7 +160,7 @@ async function startJob() {
   state.currentJobId = jobId;
   state.jobMisses = 0;
   $('progress-file').textContent = filename;
-  $('progress-bar').value = 0;
+  setProgress(0);
   $('progress-text').textContent = '開始しています…';
   $('btn-cancel').hidden = false;
   $('btn-close').hidden = true;
@@ -218,9 +218,14 @@ async function pollJob() {
   }
 }
 
+function setProgress(pct) {
+  $('progress-bar').style.width = pct + '%';
+  $('progress-pct').textContent = pct + '%';
+}
+
 function renderJob(job) {
   var pct = job.total > 0 ? Math.floor((job.done / job.total) * 100) : 0;
-  $('progress-bar').value = pct;
+  setProgress(pct);
   var mb = (job.bytes / (1024 * 1024)).toFixed(1);
   if (job.state === 'running') {
     $('progress-text').textContent = '取得中 ' + job.done + ' / ' + job.total + ' セグメント（' + mb + ' MB）';

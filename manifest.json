@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "m3u8 Downloader",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "ページで再生された m3u8 (HLS) を検出して mp4 でダウンロードする拡張機能",
   "icons": {
     "16": "icons/icon16.png",
