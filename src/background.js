@@ -124,4 +124,28 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       .catch(function (e) { sendResponse({ ok: false, error: String(e) }); });
     return true;
   }
+  // ダウンロードの開始と状態確認（chrome.downloads はオフスクリーンでは使えないため SW が担当）
+  if (msg.type === 'downloadBlob') {
+    chrome.downloads.download({ url: msg.url, filename: msg.filename, saveAs: false })
+      .then(function (downloadId) { sendResponse({ ok: true, downloadId: downloadId }); })
+      .catch(function (e) { sendResponse({ ok: false, error: String(e && e.message ? e.message : e) }); });
+    return true;
+  }
+  if (msg.type === 'downloadState') {
+    chrome.downloads.search({ id: msg.downloadId })
+      .then(function (items) {
+        if (!items || items.length === 0) {
+          sendResponse({ state: 'interrupted', error: 'not_found' });
+          return;
+        }
+        sendResponse({ state: items[0].state, error: items[0].error || null });
+      })
+      .catch(function (e) { sendResponse({ state: 'interrupted', error: String(e && e.message ? e.message : e) }); });
+    return true;
+  }
+  if (msg.type === 'cancelDownload') {
+    chrome.downloads.cancel(msg.downloadId).catch(function () {});
+    sendResponse({ ok: true });
+    return;
+  }
 });

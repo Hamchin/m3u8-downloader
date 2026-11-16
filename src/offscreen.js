@@ -187,30 +187,35 @@ async function concatFmp4(playlist, job) {
 
 // ---------- ダウンロード保存 ----------
 
-function saveBlob(blob, filename) {
-  return new Promise(function (resolve, reject) {
-    var url = URL.createObjectURL(blob);
-    chrome.downloads.download({ url: url, filename: filename, saveAs: false }, function (downloadId) {
-      if (chrome.runtime.lastError) {
-        URL.revokeObjectURL(url);
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      var listener = function (delta) {
-        if (delta.id !== downloadId || !delta.state) return;
-        if (delta.state.current === 'complete') {
-          chrome.downloads.onChanged.removeListener(listener);
-          URL.revokeObjectURL(url);
-          resolve();
-        } else if (delta.state.current === 'interrupted') {
-          chrome.downloads.onChanged.removeListener(listener);
-          URL.revokeObjectURL(url);
-          reject(new Error('ダウンロードが中断されました'));
-        }
-      };
-      chrome.downloads.onChanged.addListener(listener);
+// 保存はサービスワーカーに依頼する（オフスクリーンでは chrome.downloads が使えないため）。
+// Blob の URL を渡し、完了はダウンロード状態のポーリングで待つ。
+async function saveBlob(blob, filename, job) {
+  var url = URL.createObjectURL(blob);
+  try {
+    var resp = await chrome.runtime.sendMessage({
+      target: 'sw', type: 'downloadBlob', url: url, filename: filename, jobId: job.id
     });
-  });
+    if (!resp || !resp.ok) {
+      throw new Error('ダウンロードを開始できませんでした' + (resp && resp.error ? ': ' + resp.error : ''));
+    }
+    var downloadId = resp.downloadId;
+    for (;;) {
+      if (job.abort.signal.aborted) {
+        chrome.runtime.sendMessage({ target: 'sw', type: 'cancelDownload', downloadId: downloadId }).catch(function () {});
+        throw new Error('cancelled');
+      }
+      await new Promise(function (r) { setTimeout(r, 1500); });
+      var st = await chrome.runtime.sendMessage({
+        target: 'sw', type: 'downloadState', downloadId: downloadId
+      }).catch(function () { return null; });
+      if (st && st.state === 'complete') return;
+      if (st && st.state === 'interrupted') {
+        throw new Error('ダウンロードが中断されました' + (st.error ? ': ' + st.error : ''));
+      }
+    }
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 // ---------- ジョブ実行 ----------
@@ -238,7 +243,7 @@ async function runJob(job) {
     }
     if (job.abort.signal.aborted) throw new Error('cancelled');
 
-    await saveBlob(blob, job.filename);
+    await saveBlob(blob, job.filename, job);
     job.state = 'done';
     report(job);
   } catch (e) {
