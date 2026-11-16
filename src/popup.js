@@ -81,13 +81,20 @@ async function openDetail(idx) {
   $('btn-start').disabled = true;
   $('filename').value = sanitizeFilename(state.selected.pageTitle || 'video');
 
-  await chrome.runtime.sendMessage({ target: 'sw', type: 'ensureOffscreen' });
-  var res = await chrome.runtime.sendMessage({
-    type: 'inspect',
-    url: state.selected.url,
-    headers: state.selected.headers,
-    pageUrl: state.selected.pageUrl
-  });
+  // オフスクリーンの準備ができていないとメッセージが届かないことがあるため、
+  // 応答が返るまで少し待って再送する
+  var res = null;
+  for (var attempt = 0; attempt < 10; attempt++) {
+    await chrome.runtime.sendMessage({ target: 'sw', type: 'ensureOffscreen' }).catch(function () {});
+    res = await chrome.runtime.sendMessage({
+      type: 'inspect',
+      url: state.selected.url,
+      headers: state.selected.headers,
+      pageUrl: state.selected.pageUrl
+    }).catch(function () { return null; });
+    if (res) break;
+    await new Promise(function (r) { setTimeout(r, 300); });
+  }
   if (!res || !res.ok) {
     $('detail-info').textContent = '';
     $('detail-error').hidden = false;
@@ -151,8 +158,18 @@ async function startJob() {
   var filename = sanitizeFilename($('filename').value);
   var jobId = 'job_' + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
   state.currentJobId = jobId;
-  await chrome.runtime.sendMessage({ target: 'sw', type: 'ensureOffscreen' });
-  await chrome.runtime.sendMessage({
+  state.jobMisses = 0;
+  $('progress-file').textContent = filename;
+  $('progress-bar').value = 0;
+  $('progress-text').textContent = '開始しています…';
+  $('btn-cancel').hidden = false;
+  $('btn-close').hidden = true;
+  show('view-progress');
+  pollJob();
+
+  // オフスクリーンのリスナーがまだ登録されていないと startJob が届かず、
+  // 応答も返らないままになることがある。{ ok: true } が返るまで再送する。
+  var jobMessage = {
     type: 'startJob',
     job: {
       id: jobId,
@@ -161,14 +178,20 @@ async function startJob() {
       headers: state.selected.headers,
       pageUrl: state.selected.pageUrl
     }
-  });
-  $('progress-file').textContent = filename;
-  $('progress-bar').value = 0;
-  $('progress-text').textContent = '開始しました…';
-  $('btn-cancel').hidden = false;
-  $('btn-close').hidden = true;
-  show('view-progress');
-  pollJob();
+  };
+  var started = false;
+  for (var i = 0; i < 20 && !started; i++) {
+    await chrome.runtime.sendMessage({ target: 'sw', type: 'ensureOffscreen' }).catch(function () {});
+    var resp = await chrome.runtime.sendMessage(jobMessage).catch(function () { return null; });
+    if (resp && resp.ok) started = true;
+    else await new Promise(function (r) { setTimeout(r, 300); });
+  }
+  if (!started && state.currentJobId === jobId) {
+    $('progress-text').textContent = 'エラー: ジョブを開始できませんでした。拡張機能を再読み込みして、もう一度お試しください';
+    $('btn-cancel').hidden = true;
+    $('btn-close').hidden = false;
+    state.currentJobId = null;
+  }
 }
 
 async function pollJob() {
@@ -176,7 +199,20 @@ async function pollJob() {
   var key = 'job_' + state.currentJobId;
   var obj = await chrome.storage.session.get(key);
   var job = obj[key];
-  if (job) renderJob(job);
+  if (job) {
+    state.jobMisses = 0;
+    renderJob(job);
+  } else {
+    state.jobMisses = (state.jobMisses || 0) + 1;
+    // 30回（約15秒）待ってもジョブの記録が現れなければ開始失敗として打ち切る
+    if (state.jobMisses > 30) {
+      $('progress-text').textContent = 'エラー: ジョブが開始されませんでした。拡張機能を再読み込みして、もう一度お試しください';
+      $('btn-cancel').hidden = true;
+      $('btn-close').hidden = false;
+      state.currentJobId = null;
+      return;
+    }
+  }
   if (!job || job.state === 'running') {
     setTimeout(pollJob, 500);
   }

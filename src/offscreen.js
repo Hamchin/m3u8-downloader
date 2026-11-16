@@ -282,6 +282,11 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   }
 
   if (msg.type === 'startJob') {
+    if (jobs[msg.job.id]) {
+      // 再送による二重開始を防ぐ
+      sendResponse({ ok: true, duplicate: true });
+      return;
+    }
     var job = {
       id: msg.job.id,
       playlistUrl: msg.job.playlistUrl,
@@ -296,7 +301,15 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       error: null
     };
     jobs[job.id] = job;
-    runJob(job);
+    runJob(job).catch(function (e) {
+      // runJob 内で処理しきれなかった例外の最終受け皿
+      try {
+        job.state = 'error';
+        job.error = String(e && e.message ? e.message : e);
+        report(job);
+      } catch (ignored) { /* noop */ }
+      delete jobs[job.id];
+    });
     sendResponse({ ok: true });
     return;
   }
