@@ -220,7 +220,70 @@ async function saveBlob(blob, filename, job) {
 
 // ---------- ジョブ実行 ----------
 
+// セグメントを順番に処理する（次の1つを先読みして待ち時間を減らす）。
+// 全セグメントをメモリに抱えないため、長尺でも一定のメモリ使用量で済む。
+async function forEachSegment(segments, job, fn) {
+  if (segments.length === 0) return;
+  var i = 0;
+  var pending = fetchSegment(segments[0], job.abort.signal);
+  while (i < segments.length) {
+    var data = await pending;
+    var nextP = null;
+    if (i + 1 < segments.length) {
+      nextP = fetchSegment(segments[i + 1], job.abort.signal);
+      nextP.catch(function () {});
+    }
+    job.done++;
+    job.bytes += data.byteLength;
+    report(job);
+    await fn(data, i);
+    if (job.abort.signal.aborted) throw new Error('cancelled');
+    pending = nextP;
+    i++;
+  }
+}
+
+// TS セグメントを変換しながら書き出し先へ流す
+async function streamTransmuxToWriter(segments, job, writable) {
+  var transmuxer = new muxjs.mp4.Transmuxer({ remux: true });
+  var initAppended = false;
+  var writeChain = Promise.resolve();
+  transmuxer.on('data', function (segment) {
+    if (!initAppended && segment.initSegment) {
+      var init = new Uint8Array(segment.initSegment);
+      writeChain = writeChain.then(function () { return writable.write(init); });
+      initAppended = true;
+    }
+    if (segment.data) {
+      var chunk = new Uint8Array(segment.data);
+      writeChain = writeChain.then(function () { return writable.write(chunk); });
+    }
+  });
+  await forEachSegment(segments, job, function (data) {
+    transmuxer.push(data);
+    transmuxer.flush();
+  });
+  await writeChain;
+}
+
+// fMP4 セグメントをそのまま書き出し先へ流す
+async function streamFmp4ToWriter(playlist, job, writable) {
+  if (playlist.map && playlist.map.uri) {
+    var mapOpts = { signal: job.abort.signal };
+    if (playlist.map.byterange) {
+      mapOpts.range = 'bytes=' + playlist.map.byterange.offset + '-' +
+        (playlist.map.byterange.offset + playlist.map.byterange.length - 1);
+    }
+    await writable.write(new Uint8Array(await fetchBytes(playlist.map.uri, mapOpts)));
+  }
+  await forEachSegment(playlist.segments, job, function (data) {
+    return writable.write(data);
+  });
+}
+
 async function runJob(job) {
+  var opfsRoot = null;
+  var opfsName = null;
   try {
     job.state = 'running';
     report(job);
@@ -234,16 +297,38 @@ async function runJob(job) {
     job.total = playlist.segments.length;
     report(job);
 
-    var blob;
-    if (playlist.map) {
-      blob = await concatFmp4(playlist, job);
-    } else {
-      var segmentsData = await fetchAllSegments(playlist.segments, job, null);
-      blob = await transmuxToMp4(segmentsData);
+    var file = null;
+    // 本命：OPFS（ブラウザ内の一時ファイル領域）へ逐次書き出し、メモリに全量を抱えない
+    try {
+      opfsRoot = await navigator.storage.getDirectory();
+      opfsName = 'jobfile_' + job.id + '.mp4';
+      var fh = await opfsRoot.getFileHandle(opfsName, { create: true });
+      var writable = await fh.createWritable();
+      try {
+        if (playlist.map) await streamFmp4ToWriter(playlist, job, writable);
+        else await streamTransmuxToWriter(playlist.segments, job, writable);
+        await writable.close();
+      } catch (streamErr) {
+        try { await writable.abort(); } catch (ignored) {}
+        throw streamErr;
+      }
+      file = await fh.getFile();
+    } catch (opfsErr) {
+      if (job.abort.signal.aborted) throw opfsErr;
+      // OPFS が使えない・失敗した場合はメモリ方式にフォールバックする（短尺向け）
+      job.done = 0;
+      job.bytes = 0;
+      report(job);
+      if (playlist.map) {
+        file = await concatFmp4(playlist, job);
+      } else {
+        var segmentsData = await fetchAllSegments(playlist.segments, job, null);
+        file = await transmuxToMp4(segmentsData);
+      }
     }
     if (job.abort.signal.aborted) throw new Error('cancelled');
 
-    await saveBlob(blob, job.filename, job);
+    await saveBlob(file, job.filename, job);
     job.state = 'done';
     report(job);
   } catch (e) {
@@ -256,6 +341,9 @@ async function runJob(job) {
     report(job);
   } finally {
     await clearHeaderRule();
+    if (opfsRoot && opfsName) {
+      try { await opfsRoot.removeEntry(opfsName); } catch (ignored) {}
+    }
     delete jobs[job.id];
   }
 }
