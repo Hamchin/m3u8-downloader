@@ -72,7 +72,12 @@ function report(job) {
   var data = { ['job_' + job.id]: snapshot };
   // ポップアップを開き直したときに進行中ジョブを復元できるよう、最新ジョブも記録する
   data.latest_job = snapshot;
-  chrome.storage.session.set(data);
+  try {
+    // 直接の書き込みも試みるが、本命は jobProgress メッセージを受けた
+    // サービスワーカー側の書き込み（そちらが確実に反映される）
+    var p = chrome.storage.session.set(data);
+    if (p && p.catch) p.catch(function () {});
+  } catch (e) { /* サービスワーカー経由の書き込みに任せる */ }
   chrome.runtime.sendMessage({ type: 'jobProgress', job: snapshot }).catch(function () {});
 }
 

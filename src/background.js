@@ -105,6 +105,15 @@ async function ensureOffscreen() {
 // ---------- ポップアップからのメッセージ ----------
 
 chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
+  // ジョブの進捗はオフスクリーンから受け取り、サービスワーカーがストレージに記録する
+  // （オフスクリーンからの storage.session 書き込みが反映されない環境があるための経路）
+  if (msg && msg.type === 'jobProgress' && msg.job) {
+    var data = {};
+    data['job_' + msg.job.jobId] = msg.job;
+    data.latest_job = msg.job;
+    chrome.storage.session.set(data);
+    return;
+  }
   if (!msg || msg.target !== 'sw') return;
   if (msg.type === 'getDetections') {
     getDetections(msg.tabId).then(sendResponse);
