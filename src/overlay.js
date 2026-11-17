@@ -12,6 +12,8 @@
 
   var CSS = [
     ':host { all: initial; }',
+    // .icon-btn の display: flex が hidden 属性の UA スタイルを上書きしてしまうため明示する
+    '[hidden] { display: none !important; }',
     '.stack {',
     '  position: fixed; right: 18px; bottom: 18px; z-index: 2147483647;',
     '  display: flex; flex-direction: column; gap: 10px;',
@@ -42,6 +44,12 @@
     '}',
     '.icon-btn:hover { background: #ede9fe; }',
     '.icon-btn svg { width: 14px; height: 14px; fill: currentColor; display: block; }',
+    '.text-btn {',
+    '  border: 1px solid #ddd6fe; background: #f5f3ff; color: #4f46e5;',
+    '  font-weight: 600; border-radius: 8px; padding: 4px 14px;',
+    '  font-size: 12px; cursor: pointer; font-family: inherit;',
+    '}',
+    '.text-btn:hover { background: #ede9fe; }',
     '@media (prefers-color-scheme: dark) {',
     '  .card { background: #1f1f2a; color: #eceaf6; }',
     '  .status { color: #a3a0b8; }',
@@ -52,6 +60,8 @@
     '  .pct { color: #a78bfa; }',
     '  .icon-btn { border-color: #4c1d95; background: rgba(124, 58, 237, 0.20); color: #c4b5fd; }',
     '  .icon-btn:hover { background: rgba(124, 58, 237, 0.32); }',
+    '  .text-btn { border-color: #4c1d95; background: rgba(124, 58, 237, 0.20); color: #c4b5fd; }',
+    '  .text-btn:hover { background: rgba(124, 58, 237, 0.32); }',
     '}'
   ].join('\n');
 
@@ -103,8 +113,14 @@
     btns.className = 'btns';
     var toggleBtn = makeIconButton(ICON_PAUSE, '一時停止');
     var closeBtn = makeIconButton(ICON_CLOSE, 'キャンセル');
+    var closeTextBtn = document.createElement('button');
+    closeTextBtn.type = 'button';
+    closeTextBtn.className = 'text-btn';
+    closeTextBtn.textContent = '閉じる';
+    closeTextBtn.hidden = true;
     btns.appendChild(toggleBtn);
     btns.appendChild(closeBtn);
+    btns.appendChild(closeTextBtn);
     row.appendChild(pct);
     row.appendChild(btns);
     inner.appendChild(fname);
@@ -117,7 +133,8 @@
 
     var entry = {
       root: card, fname: fname, status: status, fill: fill, pct: pct,
-      toggleBtn: toggleBtn, closeBtn: closeBtn, state: 'running', paused: false
+      toggleBtn: toggleBtn, closeBtn: closeBtn, closeTextBtn: closeTextBtn,
+      state: 'running', paused: false
     };
     toggleBtn.addEventListener('click', function () {
       if (entry.state !== 'running') return;
@@ -128,10 +145,11 @@
     closeBtn.addEventListener('click', function () {
       if (entry.state === 'running') {
         chrome.runtime.sendMessage({ type: 'cancelJob', jobId: jobId }).catch(function () {});
-      } else {
-        card.remove();
-        delete cards[jobId];
       }
+    });
+    closeTextBtn.addEventListener('click', function () {
+      card.remove();
+      delete cards[jobId];
     });
     cards[jobId] = entry;
     return entry;
@@ -153,8 +171,8 @@
     entry.status.className = 'status';
     if (job.state === 'running') {
       entry.toggleBtn.hidden = false;
-      entry.closeBtn.title = 'キャンセル';
-      entry.closeBtn.setAttribute('aria-label', 'キャンセル');
+      entry.closeBtn.hidden = false;
+      entry.closeTextBtn.hidden = true;
       if (entry.paused) {
         entry.status.textContent = '一時停止中 ' + job.done + ' / ' + job.total + ' セグメント（' + mb + ' MB）';
         entry.status.classList.add('paused');
@@ -172,19 +190,19 @@
       entry.status.textContent = '✓ 完了しました（' + mb + ' MB）';
       entry.status.classList.add('done');
       entry.toggleBtn.hidden = true;
-      entry.closeBtn.title = '閉じる';
-      entry.closeBtn.setAttribute('aria-label', '閉じる');
+      entry.closeBtn.hidden = true;
+      entry.closeTextBtn.hidden = false;
     } else if (job.state === 'cancelled') {
       entry.status.textContent = 'キャンセルしました';
       entry.toggleBtn.hidden = true;
-      entry.closeBtn.title = '閉じる';
-      entry.closeBtn.setAttribute('aria-label', '閉じる');
+      entry.closeBtn.hidden = true;
+      entry.closeTextBtn.hidden = false;
     } else if (job.state === 'error') {
       entry.status.textContent = 'エラー: ' + (job.error || '不明');
       entry.status.classList.add('error');
       entry.toggleBtn.hidden = true;
-      entry.closeBtn.title = '閉じる';
-      entry.closeBtn.setAttribute('aria-label', '閉じる');
+      entry.closeBtn.hidden = true;
+      entry.closeTextBtn.hidden = false;
     }
     entry.fill.style.width = pct + '%';
     entry.pct.textContent = pct + '%';
