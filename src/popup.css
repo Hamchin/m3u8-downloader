@@ -299,6 +299,12 @@ button.ghost:hover { border-color: var(--accent-1); }
 
 #progress-text { line-height: 1.5; }
 
+#progress-text.paused { color: #b45309; font-weight: 600; }
+
+@media (prefers-color-scheme: dark) {
+  #progress-text.paused { color: #fbbf24; }
+}
+
 .actions {
   display: flex;
   gap: 8px;

@@ -63,6 +63,7 @@ function report(job) {
   var snapshot = {
     jobId: job.id,
     state: job.state, // running | done | error | cancelled
+    paused: !!job.paused,
     done: job.done || 0,
     total: job.total || 0,
     bytes: job.bytes || 0,
@@ -105,6 +106,26 @@ async function decryptSegment(data, seg, signal) {
   return new Uint8Array(plain);
 }
 
+// ---------- 一時停止 ----------
+
+function sleep(ms) {
+  return new Promise(function (r) { setTimeout(r, ms); });
+}
+
+// 一時停止中はここで待つ。キャンセルされたら抜ける。
+// 停止中も数秒ごとに進捗を送り直し、表示の維持とオフスクリーンの延命を兼ねる。
+async function waitWhilePaused(job) {
+  var lastReport = 0;
+  while (job.paused && !job.abort.signal.aborted) {
+    await sleep(300);
+    var now = Date.now();
+    if (now - lastReport > 5000) {
+      lastReport = now;
+      report(job);
+    }
+  }
+}
+
 // ---------- セグメント取得 ----------
 
 async function fetchSegment(seg, signal) {
@@ -125,6 +146,8 @@ async function fetchAllSegments(segments, job, onChunk) {
   var CONCURRENCY = 4;
   async function worker() {
     while (next < segments.length) {
+      await waitWhilePaused(job);
+      if (job.abort.signal.aborted) throw new Error('cancelled');
       var idx = next++;
       var data = await fetchSegment(segments[idx], job.abort.signal);
       results[idx] = data;
@@ -227,6 +250,8 @@ async function forEachSegment(segments, job, fn) {
   var i = 0;
   var pending = fetchSegment(segments[0], job.abort.signal);
   while (i < segments.length) {
+    // 先読み済みの1セグメントは保持したまま、処理の前に一時停止を待つ
+    await waitWhilePaused(job);
     var data = await pending;
     var nextP = null;
     if (i + 1 < segments.length) {
@@ -393,6 +418,7 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       pageUrl: msg.job.pageUrl || null,
       abort: new AbortController(),
       state: 'running',
+      paused: false,
       done: 0,
       total: 0,
       bytes: 0,
@@ -415,6 +441,26 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   if (msg.type === 'cancelJob') {
     var j = jobs[msg.jobId];
     if (j) j.abort.abort();
+    sendResponse({ ok: true });
+    return;
+  }
+
+  if (msg.type === 'pauseJob') {
+    var pj = jobs[msg.jobId];
+    if (pj && pj.state === 'running') {
+      pj.paused = true;
+      report(pj);
+    }
+    sendResponse({ ok: true });
+    return;
+  }
+
+  if (msg.type === 'resumeJob') {
+    var rj = jobs[msg.jobId];
+    if (rj && rj.state === 'running') {
+      rj.paused = false;
+      report(rj);
+    }
     sendResponse({ ok: true });
     return;
   }

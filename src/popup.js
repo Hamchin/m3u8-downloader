@@ -6,7 +6,9 @@ var state = {
   detections: [],
   selected: null,     // 選択中の検出エントリ
   inspect: null,      // inspect 結果
-  currentJobId: null
+  currentJobId: null,
+  jobPaused: false,
+  jobMisses: 0
 };
 
 function $(id) { return document.getElementById(id); }
@@ -162,6 +164,11 @@ async function startJob() {
   $('progress-file').textContent = filename;
   setProgress(0);
   $('progress-text').textContent = '開始しています…';
+  $('progress-text').classList.remove('paused');
+  state.jobPaused = false;
+  $('btn-pause').hidden = false;
+  $('btn-pause').textContent = '一時停止';
+  $('btn-pause').className = 'ghost';
   $('btn-cancel').hidden = false;
   $('btn-close').hidden = true;
   show('view-progress');
@@ -200,6 +207,7 @@ async function startJob() {
   }
   if (!started && state.currentJobId === jobId) {
     $('progress-text').textContent = 'エラー: ジョブを開始できませんでした。拡張機能を再読み込みして、もう一度お試しください';
+    $('btn-pause').hidden = true;
     $('btn-cancel').hidden = true;
     $('btn-close').hidden = false;
     state.currentJobId = null;
@@ -219,6 +227,7 @@ async function pollJob() {
     // 30回（約15秒）待ってもジョブの記録が現れなければ開始失敗として打ち切る
     if (state.jobMisses > 30) {
       $('progress-text').textContent = 'エラー: ジョブが開始されませんでした。拡張機能を再読み込みして、もう一度お試しください';
+      $('btn-pause').hidden = true;
       $('btn-cancel').hidden = true;
       $('btn-close').hidden = false;
       state.currentJobId = null;
@@ -236,11 +245,18 @@ function setProgress(pct) {
 }
 
 function renderJob(job) {
+  state.jobPaused = !!job.paused;
   var pct = job.total > 0 ? Math.floor((job.done / job.total) * 100) : 0;
   setProgress(pct);
   var mb = (job.bytes / (1024 * 1024)).toFixed(1);
+  $('progress-text').classList.toggle('paused', job.state === 'running' && !!job.paused);
+  $('btn-pause').hidden = job.state !== 'running';
   if (job.state === 'running') {
-    $('progress-text').textContent = '取得中 ' + job.done + ' / ' + job.total + ' セグメント（' + mb + ' MB）';
+    $('progress-text').textContent = job.paused
+      ? '一時停止中 ' + job.done + ' / ' + job.total + ' セグメント（' + mb + ' MB）'
+      : '取得中 ' + job.done + ' / ' + job.total + ' セグメント（' + mb + ' MB）';
+    $('btn-pause').textContent = job.paused ? '再開' : '一時停止';
+    $('btn-pause').className = job.paused ? 'primary' : 'ghost';
   } else if (job.state === 'done') {
     $('progress-text').textContent = '完了しました（' + mb + ' MB）';
     $('btn-cancel').hidden = true;
@@ -271,6 +287,13 @@ $('btn-cancel').addEventListener('click', async function () {
     await chrome.runtime.sendMessage({ type: 'cancelJob', jobId: state.currentJobId });
   }
 });
+$('btn-pause').addEventListener('click', async function () {
+  if (state.currentJobId) {
+    await chrome.runtime.sendMessage({
+      type: state.jobPaused ? 'resumeJob' : 'pauseJob', jobId: state.currentJobId
+    });
+  }
+});
 $('btn-close').addEventListener('click', function () { window.close(); });
 
 // 開き直したとき、進行中のジョブがあれば進捗画面を復元する
@@ -280,6 +303,7 @@ async function init() {
   if (job && job.state === 'running') {
     state.currentJobId = job.jobId;
     $('progress-file').textContent = job.filename || '';
+    $('btn-pause').hidden = false;
     $('btn-cancel').hidden = false;
     $('btn-close').hidden = true;
     renderJob(job);
