@@ -186,6 +186,18 @@ async function startJob() {
     if (resp && resp.ok) started = true;
     else await new Promise(function (r) { setTimeout(r, 300); });
   }
+  if (started && state.currentJobId === jobId) {
+    // ページ上に進捗カードを出せたらポップアップは閉じる。
+    // 出せないページ（chrome:// など）では従来の進捗画面のままにする。
+    var attach = await chrome.runtime.sendMessage({
+      target: 'sw', type: 'attachOverlay', tabId: state.tabId, jobId: jobId
+    }).catch(function () { return null; });
+    if (attach && attach.ok) {
+      state.currentJobId = null;
+      window.close();
+      return;
+    }
+  }
   if (!started && state.currentJobId === jobId) {
     $('progress-text').textContent = 'エラー: ジョブを開始できませんでした。拡張機能を再読み込みして、もう一度お試しください';
     $('btn-cancel').hidden = true;

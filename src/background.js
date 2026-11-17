@@ -102,6 +102,38 @@ async function ensureOffscreen() {
   await creatingOffscreen;
 }
 
+// ---------- ページ上の進捗カード（オーバーレイ） ----------
+
+// ジョブと表示先タブの紐付けはセッションストレージに置く
+// （サービスワーカーが再起動しても中継を続けられるように）
+async function attachOverlay(tabId, jobId) {
+  await chrome.storage.session.set({ ['jobtab_' + jobId]: tabId });
+  await chrome.scripting.executeScript({
+    target: { tabId: tabId },
+    files: ['src/overlay.js']
+  });
+  // 現在のスナップショットをすぐ送り、カードを即座に描画する
+  var obj = await chrome.storage.session.get('job_' + jobId);
+  var job = obj['job_' + jobId];
+  if (job) {
+    await chrome.tabs.sendMessage(tabId, { target: 'overlay', type: 'jobProgress', job: job })
+      .catch(function () {});
+  }
+}
+
+async function relayToOverlay(job) {
+  var key = 'jobtab_' + job.jobId;
+  var obj = await chrome.storage.session.get(key);
+  var tabId = obj[key];
+  if (typeof tabId !== 'number') return;
+  await chrome.tabs.sendMessage(tabId, { target: 'overlay', type: 'jobProgress', job: job })
+    .catch(function () {});
+  // 終端状態を中継し終えたら紐付けを片付ける
+  if (job.state !== 'running') {
+    await chrome.storage.session.remove(key);
+  }
+}
+
 // ---------- ポップアップからのメッセージ ----------
 
 chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
@@ -112,6 +144,7 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     data['job_' + msg.job.jobId] = msg.job;
     data.latest_job = msg.job;
     chrome.storage.session.set(data);
+    relayToOverlay(msg.job);
     return;
   }
   if (!msg || msg.target !== 'sw') return;
@@ -122,6 +155,16 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   if (msg.type === 'ensureOffscreen') {
     ensureOffscreen().then(function () { sendResponse({ ok: true }); })
       .catch(function (e) { sendResponse({ ok: false, error: String(e) }); });
+    return true;
+  }
+  // ページ上の進捗カード（オーバーレイ）を対象タブへ注入し、ジョブとタブを紐付ける
+  if (msg.type === 'attachOverlay') {
+    attachOverlay(msg.tabId, msg.jobId)
+      .then(function () { sendResponse({ ok: true }); })
+      .catch(function (e) {
+        chrome.storage.session.remove('jobtab_' + msg.jobId);
+        sendResponse({ ok: false, error: String(e && e.message ? e.message : e) });
+      });
     return true;
   }
   // ダウンロードの開始と状態確認（chrome.downloads はオフスクリーンでは使えないため SW が担当）
